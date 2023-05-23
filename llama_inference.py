@@ -1,4 +1,5 @@
 import argparse
+import time
 
 import torch
 import torch.nn as nn
@@ -71,6 +72,60 @@ def load_quant(model, checkpoint, wbits, groupsize=-1, fused_mlp=True, eval=True
 
     return model
 
+class LLM:
+
+    def __init__(
+        self,
+        model_path: str, # /dir/alpaca-native-4bit
+        load_path: str, # /dir/alpaca-native-4bit/alpaca7b-4bit.pt
+        wbits: str = 4,
+        groupsize: str = 128,
+        top_p: float = 0.95,
+        temperature: float = 0.8,
+        device: int = -1 # The device used to load the model when using safetensors. Default device is "cpu" or specify, 0,1,2,3,... for GPU device.
+    ):
+
+        self.model = load_quant(
+            model=model_path,
+            checkpoint=load_path,
+            wbits=wbits,
+            groupsize=groupsize
+        ).to(DEV) # set to CUDA
+
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=False)
+
+        self.top_p = top_p
+        self.temperature = temperature
+        self.device = device
+    
+    def generate(
+        self,
+        text: str,
+        min_length: int = 10,
+        max_length: int = 300,
+    ) -> str:
+
+        input_ids = self.tokenizer.encode(text, return_tensors="pt").to(DEV)
+
+        with torch.no_grad(): # what does no grad do?
+            generated_ids = self.model.generate(
+                input_ids,
+                do_sample=True,
+                min_length=min_length,
+                max_length=max_length,
+                top_p=self.top_p,
+                temperature=self.temperature,
+            )
+        
+        start = time.time()
+        output = self.tokenizer.decode([el.item() for el in generated_ids[0]])
+        end = time.time()
+        print(f'Detokenization took: {end - start} seconds.')
+
+        return output
+
+
+
 
 if __name__ == '__main__':
 
@@ -110,6 +165,7 @@ if __name__ == '__main__':
     model.to(DEV)
     tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=False)
     input_ids = tokenizer.encode(args.text, return_tensors="pt").to(DEV)
+    # question here
 
     with torch.no_grad():
         generated_ids = model.generate(
